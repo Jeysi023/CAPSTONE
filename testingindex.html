@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Straw-Freelament PID Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --primary:    #1a73e8;
+      --bg:         #fff;
+      --hover:      #f1f3f4;
+      --text:       #202124;
+      --shadow:     rgba(0,0,0,0.1);
+      --warning:    #e53e3e;
+      --track:      var(--hover);
+      --thumb:      var(--primary);
+      --highlight:  rgba(255,255,255,0.1);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { 
+      font-family:
+      Arial,sans-serif;
+      background:#f4f4f4; 
+      color:var(--text); 
+    }
+
+    /* —— Navbar —— */
+    .navbar {
+      position:relative; background:#0033cc; color:#fff;
+      padding:10px 20px; display:flex; align-items:center; z-index:300;
+    }
+    .navbar img { width:30px; height:30px; margin-right:10px; }
+    .status-indicator {
+      position:absolute; top:12px; right:60px;
+      padding:4px 10px; border-radius:4px;
+      font-size:.85rem; font-weight:600; color:#fff;
+      background:#999; transition:background .3s;
+    }
+    .status-indicator.online  { background:#28a745; }
+    .status-indicator.offline { background:#dc3545; }
+    .settings-icon { margin-left:auto; width:30px; height:30px; cursor:pointer; }
+
+    /* —— Sidebar —— */
+    .side-nav {
+      position:fixed; top:60px; left:100%;
+      width:100%; height:calc(100vh - 60px);
+      background:#fff; box-shadow:-2px 0 8px rgba(0,0,0,0.2);
+      transition:left .3s; z-index:250; padding:20px;
+    }
+    .side-nav.open { left:0; }
+    .close-btn {
+      position:absolute; top:10px; left:10px;
+      background:none; border:none; font-size:1.5rem; cursor:pointer;
+    }
+
+    /* —— Warning & Confirm Modals —— */
+    .modal {
+      display:none;
+      position:fixed; top:0; left:0;
+      width:100%; height:100%; background:rgba(0,0,0,0.5);
+      align-items:center; justify-content:center; z-index:400;
+    }
+    .modal.open { display:flex; }
+    .modal-content-warning {
+      background:#fff; padding:24px; border-radius:12px;
+      text-align:center; box-shadow:0 8px 24px var(--shadow);
+      max-width:300px; width:80%;
+    }
+    .warning-icon {
+      font-size:3rem; color:var(--warning);
+      animation:warning-pulse 1s infinite alternate;
+      margin-bottom:12px;
+    }
+    @keyframes warning-pulse { from{transform:scale(1)} to{transform:scale(1.2)} }
+    .warning-title { font-size:1.5rem; color:var(--warning); margin:0; }
+    .modal-content-warning p { margin:16px 0; font-size:1rem; }
+    .modal-content-warning button {
+      margin:0 8px; padding:8px 16px;
+      border:none; border-radius:4px; font-size:1rem; cursor:pointer;
+    }
+    .modal-content-warning button.confirm {
+      background:var(--primary); color:#fff;
+    }
+    .modal-content-warning button.cancel {
+      background:#f1f3f4; color:var(--text);
+    }
+
+    /* —— Tuning Panel —— */
+    .tuning-panel {
+      background:var(--bg); padding:24px; border-radius:12px;
+      box-shadow:0 8px 24px var(--shadow); max-width:400px;
+      margin:40px auto; text-align:center;
+    }
+    .tuning-panel h3 {
+      font-size:1.25rem; color:var(--primary); margin-bottom:24px;
+    }
+    .tuning-grid {
+      display:grid; grid-template-columns:repeat(3,1fr);
+      gap:16px; margin-bottom:24px;
+    }
+    .tuning-item label {
+      display:block; font-weight:600; margin-bottom:6px;
+    }
+    .tuning-item input {
+      width:100%; padding:10px; font-size:1rem;
+      border:2px solid var(--hover); border-radius:8px;
+      transition:border-color .2s, box-shadow .2s;
+    }
+    .tuning-item input:focus {
+      outline:none; border-color:var(--primary);
+      box-shadow:0 0 0 3px rgba(26,115,232,0.2);
+    }
+
+    /* —— Motor Speed Control —— */
+    .motor-control { margin:32px 0; text-align:left; }
+    .motor-control h4 { font-size:1.1rem; margin-bottom:8px; }
+    .slider-container { margin-bottom:16px; }
+    input[type=range] {
+      appearance: none;         /* standard property */
+      -webkit-appearance: none; /* WebKit browsers */
+      -moz-appearance: none;    /* Gecko browsers */
+      width: 100%;
+      height: 12px;
+      border-radius: 6px;
+      background: transparent;
+      box-shadow: inset 0 2px 6px var(--shadow);
+    }
+    input[type=range]:focus { outline:none; }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance:none; width:24px; height:24px; border-radius:50%;
+      background:var(--thumb);
+      box-shadow:0 2px 6px var(--shadow), inset 0 1px 2px var(--highlight);
+      cursor:pointer; margin-top:-6px;
+    }
+    .value-input input {
+      width:80px; padding:8px; font-size:1rem; text-align:center;
+      border:none; border-radius:8px; background:var(--track);
+      box-shadow:inset 2px 2px 6px var(--shadow),
+                 inset -2px -2px 6px var(--highlight);
+      color:var(--text);
+    }
+
+    /* —— Save Settings Button —— */
+    #saveSettings {
+      width:100%; padding:12px; background:var(--primary); color:#fff;
+      font-size:1rem; font-weight:600; border:none; border-radius:8px;
+      cursor:pointer; transition:filter .2s; margin-top:8px;
+    }
+    #saveSettings:hover { filter:brightness(0.9); }
+
+    /* —— Main Content —— */
+    .content {
+      display:flex; align-items:flex-start;
+      max-width:1200px; margin:20px auto; gap:20px;
+    }
+    .camera-box {
+      flex:2; aspect-ratio:16/9; border-radius:8px; overflow:hidden;
+      box-shadow:0 8px 24px var(--shadow); position:relative;
+      transition:transform .3s;
+    }
+    .camera-box:hover { transform:translateY(-4px); }
+    .live-indicator {
+      position:absolute; top:12px; right:12px;
+      background:rgba(234,67,53,0.9); color:#fff;
+      padding:.4rem .8rem; border-radius:12px;
+      font-size:.85rem; font-weight:600;
+      animation:pulse 1.2s infinite;
+    }
+    @keyframes pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.4);opacity:.7} }
+    .fullscreen-btn {
+      position:absolute; bottom:12px; right:12px;
+      background:rgba(0,0,0,0.5); color:#fff;
+      border:none; padding:8px; border-radius:4px;
+      cursor:pointer; font-size:16px; transition:background .2s;
+    }
+    .fullscreen-btn:hover { background:rgba(0,0,0,0.7); }
+
+    .control-box {
+      flex:1.2; min-width:360px; background:var(--bg);
+      padding:20px; border-radius:8px; box-shadow:0 4px 12px var(--shadow);
+      display:flex; flex-direction:column; gap:1rem;
+    }
+    .display-box {
+      background:var(--hover); padding:12px 16px; border-radius:6px;
+      font-size:1rem; text-align:center; position:relative;
+    }
+    .chart-btn {
+      position:absolute; top:8px; right:8px; background:none;
+      border:none; cursor:pointer; font-size:1.2rem; transition:color .2s;
+    }
+    .chart-btn:hover { color:var(--primary); }
+    .setpoint-input {
+      display:flex; align-items:center; gap:1rem;
+    }
+    .setpoint-input input {
+      width:60px; padding:6px; font-size:1rem;
+      border:1px solid #ccc; border-radius:4px;
+    }
+    .setpoint-input button {
+      background:var(--primary); color:#fff;
+      border:none; padding:6px 12px; border-radius:4px;
+      cursor:pointer;
+    }
+
+    /* —— RESTORED PRESETS UI —— */
+    .presets-container {
+      display:flex; align-items:center; gap:1rem;
+      background:var(--bg); padding:16px 24px;
+      border-radius:8px; box-shadow:0 2px 6px var(--shadow);
+      position:relative;
+    }
+    .presets-label { font-weight:600 }
+    .dropdown { position:relative }
+    .dropbtn {
+      background:var(--hover); border:none;
+      padding:10px 16px; border-radius:6px; cursor:pointer;
+      font-size:.95rem; display:flex; align-items:center; gap:.3rem;
+      transition:background .2s; min-width:160px;
+    }
+    .dropbtn:hover { background:var(--primary); color:#fff }
+    .dropdown-menu {
+      display:none; position:absolute; top:100%; left:0;
+      margin-top:6px; background:var(--bg);
+      box-shadow:0 4px 12px var(--shadow);
+      border-radius:6px; overflow:hidden; min-width:160px; z-index:100;
+    }
+    .presets-container:hover .dropdown-menu { display:block }
+    .dropdown-menu li {
+      list-style:none; padding:12px 16px; cursor:pointer;
+      transition:background .2s;
+    }
+    .dropdown-menu li:hover { background:var(--hover) }
+    .dropdown-menu li.recommended {
+      color:var(--primary); font-weight:bold;
+    }
+    .preview-temp {
+      margin-left:auto; font-weight:600; color:var(--primary);
+      min-width:60px; text-align:right;
+    }
+
+    /* —— DYNAMIC CHART MODAL —— */
+    .chart-modal {
+      position:fixed; top:0; left:0;
+      width:100%; height:100%; background:rgba(0,0,0,0.5);
+      display:flex; align-items:center; justify-content:center; z-index:500;
+    }
+    .chart-container {
+      background:#fff; padding:24px; border-radius:12px;
+      box-shadow:0 8px 24px var(--shadow); max-width:600px; width:90%;
+      position:relative;
+    }
+    .chart-close {
+      position:absolute; top:12px; right:12px; background:none;
+      border:none; font-size:1.5rem; cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+  <!-- Navbar -->
+  <div class="navbar">
+    <img src="/images/abra.png" alt="logo">
+    <div><b>Straw-Freelament:</b> Recycling Plastic Straws into Eco-Innovative Filament</div>
+    <div id="connStatus" class="status-indicator">Connecting…</div>
+    <img id="settingsBtn" src="/images/settings.png" class="settings-icon" alt="Settings">
+  </div>
+
+  <!-- Warning Modal -->
+  <div id="warningModal" class="modal">
+    <div class="modal-content-warning">
+      <div class="warning-icon">⚠️</div>
+      <h3 class="warning-title">WARNING!</h3>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirmModal" class="modal">
+    <div class="modal-content-warning">
+      <h3 class="warning-title">Apply settings?</h3>
+      <p>These changes will be sent to the hardware.</p>
+      <button id="confirmSave" class="confirm">Yes</button>
+      <button id="cancelSave" class="cancel">No</button>
+    </div>
+  </div>
+
+  <!-- Sidebar: PID & Motor Control -->
+  <div id="sideNav" class="side-nav">
+    <button class="close-btn" id="closeNav">&times;</button>
+    <div class="tuning-panel">
+      <h3>PID Tuning & Motor Control</h3>
+      <div class="tuning-grid">
+        <div class="tuning-item"><label for="kpInput">Kp</label><input id="kpInput" type="number" step="0.01"></div>
+        <div class="tuning-item"><label for="kiInput">Ki</label><input id="kiInput" type="number" step="0.01"></div>
+        <div class="tuning-item"><label for="kdInput">Kd</label><input id="kdInput" type="number" step="0.01"></div>
+      </div>
+      <div class="motor-control">
+        <h4>Motor Speed (0–80 RPM)</h4>
+        <div class="slider-container">
+          <input id="rpmSlider" type="range" min="0" max="80" value="0">
+        </div>
+        <div class="value-input">
+          <input id="rpmInput" type="number" min="0" max="80" value="0"> RPM
+        </div>
+      </div>
+      <button id="saveSettings">Save Settings</button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="content">
+    <div class="camera-box" id="cameraBox">
+      <div class="live-indicator">LIVE</div>
+      <img src="http://172.20.10.2" alt="Live Camera">
+      <button class="fullscreen-btn" onclick="toggleFullScreen()">⛶</button>
+    </div>
+    <div class="control-box">
+      <h2>ESP32 PID Temperature Control</h2>
+      <div class="display-box">
+        Current Temp: <span id="temp">--</span> °C
+        <button id="chartBtn" class="chart-btn">📈</button>
+      </div>
+      <div class="setpoint-input">
+        <div class="display-box">Setpoint: <span id="setp">--</span> °C</div>
+        <input id="newSet" type="number" step="1"><button onclick="setPoint()">Set</button>
+        <div class="display-box">Output: <span id="output">--</span></div>
+      </div>
+      <div class="presets-container">
+        <span class="presets-label">PRESETS:</span>
+        <div class="dropdown">
+          <button class="dropbtn">Choose Preset ▾</button>
+          <ul class="dropdown-menu">
+            <li data-temp="160">Low</li>
+            <li class="recommended" data-temp="180">Recommended</li>
+            <li data-temp="200">High</li>
+          </ul>
+        </div>
+        <div class="preview-temp" id="previewTemp">-- °C</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Element refs
+    const settingsBtn  = document.getElementById('settingsBtn'),
+          warningModal = document.getElementById('warningModal'),
+          sideNav      = document.getElementById('sideNav'),
+          closeNav     = document.getElementById('closeNav'),
+          saveSettings = document.getElementById('saveSettings'),
+          confirmModal = document.getElementById('confirmModal'),
+          confirmSave  = document.getElementById('confirmSave'),
+          cancelSave   = document.getElementById('cancelSave'),
+          rpmSlider    = document.getElementById('rpmSlider'),
+          rpmInput     = document.getElementById('rpmInput');
+
+    // Paint slider background
+    function updateSliderBackground(slider) {
+      const min = +slider.min, max = +slider.max, val = +slider.value;
+      const pct = ((val - min) / (max - min)) * 100;
+      slider.style.background =
+        `linear-gradient(to right,var(--thumb) 0%,var(--thumb) ${pct}%,var(--track) ${pct}%,var(--track) 100%)`;
+    }
+
+    // Sidebar open/close
+    settingsBtn.addEventListener('click', () => {
+      if (sideNav.classList.contains('open')) {
+        sideNav.classList.remove('open');
+        return;
+      }
+      warningModal.classList.add('open');
+      let clicks = 0;
+      const t = setTimeout(() => {
+        warningModal.classList.remove('open');
+        sideNav.classList.add('open');
+      }, 3000);
+      warningModal.onclick = () => {
+        if (++clicks >= 1) {
+          clearTimeout(t);
+          warningModal.classList.remove('open');
+          sideNav.classList.add('open');
+        }
+      };
+    });
+    closeNav.addEventListener('click', () => sideNav.classList.remove('open'));
+
+    // Confirm apply
+    saveSettings.addEventListener('click', () => confirmModal.classList.add('open'));
+    cancelSave.addEventListener('click', () => confirmModal.classList.remove('open'));
+    confirmSave.addEventListener('click', async () => {
+      confirmModal.classList.remove('open');
+      const kp  = document.getElementById('kpInput').value,
+            ki  = document.getElementById('kiInput').value,
+            kd  = document.getElementById('kdInput').value,
+            rpm = rpmInput.value;
+      await fetch('/tune', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:`kp=${kp}&ki=${ki}&kd=${kd}`
+      });
+      await fetch(`/setMotor?rpm=${rpm}`);
+      alert('Settings applied');
+    });
+
+    // Motor slider sync + bg
+    rpmSlider.addEventListener('input', e => {
+      rpmInput.value = e.target.value;
+      updateSliderBackground(e.target);
+    });
+    rpmInput.addEventListener('change', e => {
+      let v = Math.max(0, Math.min(80, +e.target.value));
+      rpmSlider.value = v; rpmInput.value = v;
+      updateSliderBackground(rpmSlider);
+    });
+
+    // Build + show a clean chart modal on‐the‐fly
+    async function showChartModal() {
+      // close everything else
+      sideNav.classList.remove('open');
+      warningModal.classList.remove('open');
+      confirmModal.classList.remove('open');
+
+      // create overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'chart-modal';
+      overlay.innerHTML = `
+        <div class="chart-container">
+          <button class="chart-close">×</button>
+          <canvas id="tempChart" style="margin-top:24px;"></canvas>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      // close handlers
+      overlay.querySelector('.chart-close').onclick = () => overlay.remove();
+      overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+      // make the chart
+      const ctx = overlay.querySelector('#tempChart').getContext('2d');
+      const chart = new Chart(ctx, {
+        type:'line',
+        data:{ labels:[], datasets:[
+          { label:'Current Temp', data:[], borderColor:'rgb(26,115,232)', tension:0.3 },
+          { label:'Setpoint',      data:[], borderColor:'rgb(234,67,53)', tension:0.3 }
+        ]},
+        options:{ responsive:true, scales:{
+          x:{ title:{ display:true, text:'Time' } },
+          y:{ title:{ display:true, text:'°C' } }
+        }}
+      });
+
+      // feed it data
+      async function update() {
+        try {
+          const res = await fetch('/data',{cache:'no-store'});
+          if(!res.ok) throw 0;
+          const j = await res.json();
+          const t = new Date().toLocaleTimeString();
+          chart.data.labels.push(t);
+          chart.data.datasets[0].data.push(j.temp);
+          chart.data.datasets[1].data.push(j.set);
+          if(chart.data.labels.length>30) {
+            chart.data.labels.shift();
+            chart.data.datasets.forEach(ds=>ds.data.shift());
+          }
+          chart.update();
+        } catch {}
+      }
+      await update();
+      const iv = setInterval(update,1000);
+      // clean up interval on remove
+      overlay.addEventListener('remove', ()=>clearInterval(iv));
+    }
+
+    // Hook up the 📈 button
+    document.getElementById('chartBtn').addEventListener('click', showChartModal);
+
+    // Connection status
+    function setStatus(on) {
+      const el = document.getElementById('connStatus');
+      el.classList.toggle('online', on);
+      el.classList.toggle('offline', !on);
+      el.textContent = on ? 'Online' : 'Connection Lost';
+    }
+
+    // Main UI data fetch
+    async function fetchData() {
+      try {
+        const r = await fetch('/data',{cache:'no-store'});
+        if(!r.ok) throw 0;
+        const j = await r.json();
+        document.getElementById('temp').innerText   = j.temp.toFixed(1);
+        document.getElementById('setp').innerText   = j.set.toFixed(1);
+        document.getElementById('newSet').value      = j.set.toFixed(1);
+        document.getElementById('output').innerText = j.output;
+        setStatus(true);
+      } catch {
+        setStatus(false);
+      }
+    }
+
+    // POST new setpoint
+    async function setPoint() {
+      const v = document.getElementById('newSet').value;
+      await fetch('/set',{
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:'set='+encodeURIComponent(v)
+      });
+      fetchData();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      updateSliderBackground(rpmSlider);
+      fetchData();
+      setInterval(fetchData,1000);
+
+      // Preset hover & click
+      document.querySelectorAll('.dropdown-menu li').forEach(item=>{
+        item.addEventListener('mouseenter',()=>{
+          document.getElementById('previewTemp').innerText = item.dataset.temp+' °C';
+        });
+        item.addEventListener('mouseleave',()=>{
+          document.getElementById('previewTemp').innerText = '-- °C';
+        });
+        item.addEventListener('click',()=>{
+          fetch('/set',{
+            method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:'set='+encodeURIComponent(item.dataset.temp)
+          }).then(fetchData);
+        });
+      });
+    });
+
+    // Fullscreen toggle
+    function toggleFullScreen(){
+      const cam = document.getElementById('cameraBox');
+      if(!document.fullscreenElement) cam.requestFullscreen().catch(console.error);
+      else document.exitFullscreen();
+    }
+  </script>
+</body>
+</html>
